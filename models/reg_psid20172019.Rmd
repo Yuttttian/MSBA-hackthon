@@ -1,0 +1,393 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# 1. data cleaning
+
+```{r}
+getwd()
+library(readxl)
+data = read_excel("J303421.xlsx")
+```
+
+Variable Labels
+
+ER66001 RELEASE NUMBER\
+ER66002 2017 FAMILY INTERVIEW (ID) NUMBER\
+ER66017 AGE OF REFERENCE PERSON\
+ER66018 SEX OF REFERENCE PERSON\
+ER66195 BC20 MAIN OCC FOR JOB 1: 2010 CODE (RP) ER66217 BC33 HOURLY REGULAR RATE\
+ER66231 BC41 YRS PRES EMP (RP-E)\
+ER67046 G13 WAGES/SALARY-REFERENCE PERSON\
+ER70882 L40 RACE OF REFERENCE PERSON-MENTION 1\
+ER70893 L44 WTR GRADUATED HS-RP\
+ER70944 L71 #YR WRKED FULLTIME-RP\
+ER71227 REFERENCE PERSON WORK WEEKS-2016\
+ER71233 REF PERSON TOTAL HOURS OF WORK-2016\
+ER71530 CURRENT REGION\
+ER71538 COMPLETED ED-RP
+
+ER72001 RELEASE NUMBER\
+ER72002 2019 FAMILY INTERVIEW (ID) NUMBER\
+ER72017 AGE OF REFERENCE PERSON\
+ER72018 SEX OF REFERENCE PERSON\
+ER72195 BC20 MAIN OCC FOR JOB 1: 2010 CODE (RP) ER72217 BC33 HOURLY REGULAR RATE\
+ER72231 BC41 YRS PRES EMP (RP-E)\
+ER73069 G13 WAGES/SALARY-REFERENCE PERSON\
+ER76897 L40 RACE OF REFERENCE PERSON-MENTION 1\
+ER76908 L44 WTR GRADUATED HS-RP\
+ER76962 L71 #YR WRKED FULLTIME-RP\
+ER77249 REFERENCE PERSON WORK WEEKS-2018\
+ER77255 REF PERSON TOTAL HOURS OF WORK-2018\
+ER77591 CURRENT REGION\
+ER77599 COMPLETED ED-RP
+
+```{r}
+data_2017 <- na.omit(data[0:15])
+data_2017$year <- "2017"
+data_2019 <- na.omit(data[16:30])
+data_2019$year <- "2019"
+
+colnames(data_2017) <- c(
+  "RELEASE_NUMBER",                         
+  "INTERVIEW_ID",      
+  "AGE",                
+  "SEX",                
+  "OCC_2010",
+  "HOURLY.REGULAR.RATE",               
+  "YRS.PRES.EMP",              
+  "WAGES",      
+  "RACE", 
+  "WTR.GRADUATED",                
+  "YR.WRKED.FULLTIME",            
+  "WORK.WEEKS",       
+  "TOTAL.HOURS",    
+  "CURRENT.REGION",                         
+  "COMPLETED.ED",
+  "YEAR"
+)
+colnames(data_2019) <- colnames(data_2017)
+data_new <- rbind(data_2017, data_2019)
+dim(data_new)
+```
+
+## create dummies
+
+```{r}
+library('fastDummies')
+df <- dummy_cols(data_new, select_columns = c('SEX','RACE', 'CURRENT.REGION',"YEAR"),
+             remove_selected_columns = TRUE)
+names(df)
+```
+
+## drop rows with DK or refuse to answer
+
+```{r}
+library(dplyr)
+df = filter(df, RACE_9 == 0 & AGE != 999 
+            & YR.WRKED.FULLTIME != 98 & YR.WRKED.FULLTIME != 99 
+            & WAGES != 9999998 & WAGES != 9999999 
+            & WTR.GRADUATED != 9 & COMPLETED.ED != 99)
+```
+
+## join stem code to create stem and no-stem tables
+
+```{r}
+stem_code = read.csv("2010-census-stem-related-and-non-stem-occupation-code-list.csv")
+colnames(stem_code) = c("occupation_des","OCC_2010","soc_code")
+library(dplyr)
+data_new = df %>% left_join(stem_code,by="OCC_2010")
+```
+
+```{r}
+library(dplyr)
+data_not_stem = filter(data_new, is.na(occupation_des))
+data_stem = df %>% inner_join(stem_code,by="OCC_2010")
+```
+
+```{r}
+# write.csv(data_stem,"/Users/yutian.lei/Desktop/MSBA hackthon/stem_data.csv", row.names = FALSE)
+# write.csv(data_not_stem,"/Users/yutian.lei/Desktop/MSBA hackthon/data_not_stem.csv", row.names = FALSE)
+# install.packages('fastDummies')
+```
+
+# 2. linear with interaction
+
+## 2.1 stem occupation
+
+```{r}
+df_1 <- subset(data_stem,select = -c(RELEASE_NUMBER,INTERVIEW_ID,OCC_2010,soc_code,
+                              HOURLY.REGULAR.RATE,occupation_des,YR.WRKED.FULLTIME,
+                              TOTAL.HOURS,
+                              # omit dummy
+                              SEX_1,RACE_1,RACE_9,CURRENT.REGION_1,YEAR_2017))
+df_1$year_female <- df_1$RACE_2*df_1$YEAR_2019
+df_1$WAGES <- log(df_1$WAGES+1)
+model <- lm(WAGES~.,data = df_1)
+summary(model)
+```
+
+ln(Wages) = 7.160498 -0.324637*Female + X ln(Wages) = 2.308438 -0.060361*Female + X
+
+## 2.2 not stem occupation
+
+```{r}
+df_2 <- subset(data_not_stem,select = -c(RELEASE_NUMBER,INTERVIEW_ID,OCC_2010,soc_code,
+                              HOURLY.REGULAR.RATE,occupation_des,YR.WRKED.FULLTIME,
+                              TOTAL.HOURS,
+                              # omit dummy
+                              SEX_1,RACE_1,RACE_9,CURRENT.REGION_1,YEAR_2017))
+df_2$year_female <- df_2$RACE_2*df_2$YEAR_2019
+df_2$WAGES <- log(df_2$WAGES+1)
+model2 <- lm(WAGES~.,data = df_2)
+summary(model2)
+```
+
+## 2.3 overall occupation
+
+```{r}
+data_new$isstem <- ifelse(is.na(data_new$occupation_des),0,1)
+df_3 <- subset(data_new,select = -c(RELEASE_NUMBER,INTERVIEW_ID,OCC_2010,soc_code,
+                              HOURLY.REGULAR.RATE,occupation_des,YR.WRKED.FULLTIME,
+                              TOTAL.HOURS,
+                              # omit dummy
+                              SEX_1,RACE_1,RACE_9,CURRENT.REGION_1,YEAR_2017))
+
+df_3$stem_female <- df_3$RACE_2*df_3$isstem
+df_3$year_female <- df_3$RACE_2*df_3$YEAR_2019
+df_3$WAGES <- log(df_3$WAGES+1)
+
+model3 <- lm(WAGES~.,data = df_3)
+summary(model3)
+```
+
+ln(Wages) = 2.328242 -0.068868\*Female + X
+
+# 3. bootstrap difference of $\beta$
+
+Do Data Boostrap 1000 times to get 95% beta difference
+
+```{r}
+set.seed(33)
+bb <- 1000						# number of resampling
+coef.out <- matrix(0, bb, 2)			# matrix to save rsq from bootstrap
+  
+for(ii in 1:bb) {
+  rr <- model$resid
+  nn <- length(rr)
+  data.star <- df_1[sample(nn, nn, replace = T),]
+  out.star <- lm(WAGES~.,data = data.star)							
+  coef.female <- summary(out.star)$coefficients[7,1]
+  
+  rr2 <- model2$resid
+  nn2 <- length(rr2)
+  data.star2 <- df_2[sample(nn2, nn2, replace = T),]
+  out.star2 <- lm(WAGES~.,data = data.star2)							
+  coef.female2 <- summary(out.star2)$coefficients[7,1]
+  
+	coef.out[ii,1] <- coef.female
+	coef.out[ii,2] <- coef.female2
+	
+	colnames(coef.out) <- c("Tech", "Overall")
+	}
+
+```
+
+## tech and overall
+
+```{r}
+set.seed(33)
+bb <- 1000						# number of resampling
+coef.out <- matrix(0, bb, 2)			# matrix to save rsq from bootstrap
+  
+for(ii in 1:bb) {
+  rr <- model$resid
+  nn <- length(rr)
+  data.star <- df_1[sample(nn, nn, replace = T),]
+  out.star <- lm(WAGES~.,data = data.star)							
+  coef.female <- summary(out.star)$coefficients[7,1]
+  
+  rr2 <- model3$resid
+  nn2 <- length(rr2)
+  data.star2 <- df_3[sample(nn2, nn2, replace = T),]
+  out.star2 <- lm(WAGES~.,data = data.star2)							
+  coef.female2 <- summary(out.star2)$coefficients[7,1]
+  
+	coef.out[ii,1] <- coef.female
+	coef.out[ii,2] <- coef.female2
+	
+	colnames(coef.out) <- c("Tech", "Overall")
+	}
+```
+
+
+```{r}
+df = as.data.frame(coef.out)
+df$diff = df$Tech - df$Overall
+(ci_90 <-  quantile(df[,c("diff")], probs = c(0.05, 0.5, 0.95)))
+
+(tech_ci_90 <-  quantile(df[,c("Tech")], probs = c(0.05, 0.5, 0.95)))
+(overall_ci_90 <-  quantile(df[,c("Overall")], probs = c(0.05, 0.5, 0.95)))
+```
+```{r}
+data <- data.frame(
+  indus = c("Tech", "Overall","Diff"),
+  mean = c(-0.32214849,-0.06772328,-0.2605556533),
+  lower = c(-0.59022685,-0.12105137,-0.5279592189),
+  upper = c(-0.12105137,-0.01409971,-0.0007971169)
+)
+ 
+# Most basic error bar
+ggplot(data) +
+    geom_bar(aes(x=indus, y=mean), stat="identity", fill="skyblue", alpha=0.7) +
+    geom_errorbar( aes(x=indus, ymin=lower, ymax=upper), width=0.4, colour="orange", alpha=0.9, size=1.3) +
+  xlab("Industry")+ylab("the Mean of Coeffcient of Is_Female")+
+  theme_bw()+
+  theme_classic()+
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank())+
+  ggtitle("Boostrap Confidence Interval of Coeffcients")
+```
+
+```{r}
+p4 <- ggplot(df, aes(x=diff, y = ..density..))+geom_density(color="darkblue")+
+  geom_histogram(fill="lightblue", bins = 50) +
+      geom_vline(xintercept=-0.0007971169, colour = "darkblue",linetype="dotted")+
+      geom_vline(xintercept=-0.5279592189, colour = "darkblue",linetype="dotted")+
+      #geom_text(aes(x=14419.03, label="Lower Bound=14419.03", y=50), colour="dark grey", angle = 90)+
+      #geom_text(aes(x=22215.36, label="Upper Bound", y=50), colour="dark grey")+
+      #geom_rect(aes(xmin = -Inf , xmax = 14419.03 , ymin = -Inf, ymax = Inf),fill = "#FFFFCC", alpha = 0.015)+
+      #geom_rect(aes(xmin = 22215.36, xmax = Inf , ymin = -Inf, ymax = Inf),fill = "#FFFFCC", alpha = 0.015)+
+     labs(title="Boostrap Distribution of Difference", x ="Difference of Female Coeffcients", y = "Density")+
+     theme_minimal()+
+     theme(plot.title = element_text(hjust = 0.5),panel.grid.major = element_blank(),panel.grid.minor = element_blank()) 
+      # geom_text(aes(x=-0.5280634, label="5% quantile = -0.5280634", y=2,family="serif", fontface="italic"), colour="darkblue", angle=90, size=3.5)+
+      # geom_text(aes(x=-0.007716132, label="95% quantile = -0.007716132", y=2,family="serif", fontface="italic"), colour="darkblue", angle=90, size=3.5)
+     
+p4
+```
+
+```{r}
+library(reshape2)
+mdata <- melt(df)
+levels(mdata$variable)
+names(mdata) = c("IsTech","Coeff")
+mdata$IsTech <- as.factor(mdata$IsTech)
+
+library(dplyr)
+n = 1000
+my_sum <- mdata %>%
+  group_by("IsTech") %>%
+  summarise( 
+    mean=mean(Coeff),
+    sd=sd(Coeff)
+  ) %>%
+  mutate(se=sd/sqrt(n))  %>%
+  mutate(ic=se * qt((1-0.1)/2 + .5, n-1))
+```
+
+```{r}
+my_sum
+```
+
+
+```{r}
+ggplot(mdata) +
+  geom_bar(aes(x=IsTech, y=Coeff), stat="identity", fill="skyblue", alpha=0.5) +
+  geom_crossbar(aes(x=IsTech, y=Coeff, ymin=Coeff-sd, ymax=Coeff+sd), width=0.4, colour="orange", alpha=0.9, size=1.3)
+```
+
+```{r}
+
+```
+
+```{r}
+levels(mdata$variable)
+```
+
+
+```{r}
+library(tidyr)
+
+mdata<-gather(df)
+names(mdata) = c("IsTech","Coeff")
+```
+
+```{r}
+ggplot(data) +
+  geom_bar(aes(x=name, y=value), stat="identity", fill="skyblue", alpha=0.5) +
+  geom_crossbar(aes(x=name, y=value, ymin=value-sd, ymax=value+sd), width=0.4, colour="orange", alpha=0.9, size=1.3)
+```
+
+
+```{r}
+library(plyr)
+mu <- ddply(mdata, "IsTech", summarise, grp.mean=mean(Coeff))
+
+library(ggplot2)
+# Change density plot line colors by groups
+p <- ggplot(mdata, aes(x=Coeff, color=IsTech)) +
+  geom_density()+
+  geom_vline(data=mu, aes(xintercept=grp.mean, color=IsTech),
+             linetype="dashed")
+p
+```
+
+
+
+```{r}
+factor(mdata$IsTech)
+```
+
+
+```{r}
+
+```
+
+```{r}
+my_sum
+```
+
+```{r}
+library(ggplot2)
+ggplot(my_sum) +
+  geom_bar(aes(x=IsTech, y=mean), stat="identity", fill="skyblue", alpha=0.7) +
+  geom_errorbar(aes(x=IsTech, ymin=mean-ic, ymax=mean+ic), width=0.4, colour="orange", alpha=0.9, size=1.3) +
+  ggtitle("using confidence interval")
+```
+
+
+
+
+```{r}
+ACME.df <- as.data.frame(coef.out)
+ACME.df
+```
+
+```{r}
+ACME.df$diff = ACME.df$STEM - ACME.df$Not_STEM
+```
+
+```{r}
+df <- as.data.frame(coef.out)
+
+library(reshape2)
+mdata <- melt(df)
+names(mdata) = c("isstem","coeff")
+
+```
+
+
+
+```{r}
+(ci_90 <-  quantile(ACME.df[,c("diff")], probs = c(0.05, 0.5, 0.95)))
+ci_90[3]
+```
+
+```{r}
+
+```
+
+**insights**
+
+discrimination on wages of gender 对tech行业更严重（stem vs no.stem）

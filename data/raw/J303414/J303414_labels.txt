@@ -1,0 +1,22 @@
+****** PSID DATA CENTER ************************* 
+****** Variable labels for JobID = 303414 ******* 
+
+Variable    Labels
+
+ER72001    RELEASE NUMBER                          
+ER72002    2019 FAMILY INTERVIEW (ID) NUMBER       
+ER72017    AGE OF REFERENCE PERSON                 
+ER72018    SEX OF REFERENCE PERSON                 
+ER72195    BC20 MAIN OCC FOR JOB 1: 2010 CODE (RP) 
+ER72217    BC33 HOURLY REGULAR RATE                
+ER72231    BC41 YRS PRES EMP (RP-E)                
+ER73069    G13 WAGES/SALARY-REFERENCE PERSON       
+ER76897    L40 RACE OF REFERENCE PERSON-MENTION 1  
+ER76962    L71 #YR WRKED FULLTIME-RP               
+ER77249    REFERENCE PERSON WORK WEEKS-2018        
+ER77255    REF PERSON TOTAL HOURS OF WORK-2018     
+ER77588    TOTAL CONSUMPTION WITH RENTAL VALUE     
+ER77591    CURRENT REGION                          
+ER77599    COMPLETED ED-RP                         
+
+*** End of labels ******************************* 

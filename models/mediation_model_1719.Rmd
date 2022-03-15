@@ -1,0 +1,143 @@
+---
+title: "Mediation Regression-2017,2019"
+output: html_notebook
+---
+```{r, echo = FALSE}
+library(dplyr)
+library(mediation)
+library(fastDummies)
+```
+### Data Processing
+```{r}
+raw <- read.csv("psid_20172019/stem_data.csv")
+
+psid <- dummy_cols(raw, select_columns = c('SEX','RACE', 'CURRENT.REGION',"YEAR"),
+             remove_selected_columns = TRUE)
+
+psid_new <- filter(psid, AGE != 999 
+            & X.YR.WRKED.FULLTIME != 98 & X.YR.WRKED.FULLTIME != 99 
+            & WAGES.SALARY != 9999998 & WAGES.SALARY != 9999999 
+            & WTR.GRADUATED != 9 & COMPLETED.ED != 99)
+
+psid_new <- subset(psid_new,select = -c(RELEASE_NUMBER,INTERVIEW_ID,OCC_2010,soc_code,
+                              HOURLY.REGULAR.RATE,occupation_des,X.YR.WRKED.FULLTIME,
+                              # omit dummy
+                              SEX_1,RACE_1,RACE_9,CURRENT.REGION_1,YEAR_2017))
+
+psid_new_male <- subset(psid_new, psid_new$SEX_2 == 1, select = -c(SEX_2, RACE_5,RACE_3, RACE_7, CURRENT.REGION_6,CURRENT.REGION_5,YEAR_2019 ))
+psid_new_female <- subset(psid_new, psid_new$SEX_2 == 0, select = -c(SEX_2, RACE_5, RACE_3,RACE_7, CURRENT.REGION_6,CURRENT.REGION_5,YEAR_2019 ))
+
+```
+
+
+## Modeling
+### Is X influencing wage?
+```{r}
+model.0.NEW.m <- lm(WAGES.SALARY~ . - COMPLETED.ED, data = psid_new_male)
+summary(model.0.NEW.m)
+
+model.0.NEW.f <- lm(WAGES.SALARY~ . - COMPLETED.ED, data = psid_new_female)
+summary(model.0.NEW.f)
+```
+
+### Is X influencing M?
+```{r}
+
+model.M.new.m <- lm( COMPLETED.ED ~ . -WAGES.SALARY, data = psid_new_male)
+summary(model.M.new.m)
+
+model.M.new.f <- lm( COMPLETED.ED ~ . -WAGES.SALARY, data = psid_new_female)
+summary(model.M.new.f)
+```
+
+### Is M affecting Y, without interfering X ?
+Partial Mediation
+```{r}
+model.Y.new.m <- lm(WAGES.SALARY ~ . , data = psid_new_male)
+summary(model.Y.new.m)
+
+model.Y.new.f <- lm(WAGES.SALARY ~ . , data = psid_new_female)
+summary(model.Y.new.f)
+```
+
+### Is the mediation effect significant?
+ACME (Average Causal Mediation Effects)     
+ADE (Direct Effect)   
+Yes, the lower bond exceeds 0, meaning at 95% confidence level, we do believe education brings positive increase in wages. 
+### Compare Male and Female
+```{r}
+psid_new_male <- subset(psid_new, psid_new$SEX_2 == 1, select = -c(SEX_2, RACE_5,RACE_3,RACE_4, RACE_7, RACE_2, CURRENT.REGION_6,CURRENT.REGION_5,YEAR_2019 ))
+psid_new_female <- subset(psid_new, psid_new$SEX_2 == 0, select = -c(SEX_2, RACE_5, RACE_3,RACE_7,RACE_4, RACE_2, CURRENT.REGION_6,CURRENT.REGION_5,YEAR_2019 ))
+bb <- 10
+nn_2 <-  min(nrow(psid_new_male),nrow(psid_new_female))
+ACME_2 <- matrix(0, bb, 1)				# new output matrix for R^2
+CME.f.2 <- matrix(0, bb, 1)
+CME.m.2 <- matrix(0, bb, 1)
+# Do Data Bootstrap 1000 times to get 95% CI for R^2
+for(ii in 1:bb) {
+	
+	data.m <- psid_new_male[sample(nn_2, nn_2, replace = T),]		# create (y*, x*) by resampling rows in original data matrix
+  model.M.m <- lm( COMPLETED.ED ~ . -WAGES.SALARY, data = data.m)							# save rsq from iteration ii
+	model.Y.m <- lm(WAGES.SALARY ~ . , data = data.m)
+	#print(summary(model.M.m))
+	#print(summary(model.Y.m))
+	CME.m <- sum(model.M.m$coefficients) * model.Y.m$coefficients['COMPLETED.ED']
+	CME.m.2[ii] <- CME.m
+	
+	data.f <- psid_new_female[sample(nn_2, nn_2, replace = T),]		# create (y*, x*) by resampling rows in original data matrix
+   model.M.f <- lm( COMPLETED.ED ~ . -WAGES.SALARY, data = data.f)								# save rsq from iteration ii
+	model.Y.f <- lm(WAGES.SALARY ~ . , data = data.f)
+	#print(summary(model.M.f))
+	#print(summary(model.Y.f))
+  CME.f <- sum(model.M.f$coefficients) * model.Y.f$coefficients['COMPLETED.ED']
+	ACME_2[ii] <- CME.m - CME.f
+	CME.f.2[ii]<-CME.f
+}
+
+quantile(ACME_2, probs = c(0.025, 0.975), na.rm=TRUE) 
+```
+
+```{r}
+quantile(CME.f.2, probs = c(0.025, 0.975), na.rm=TRUE) 
+quantile(CME.m.2, probs = c(0.025, 0.975), na.rm=TRUE) 
+```
+```{r}
+CI.m.2 <- (155384.77 -59260.16 )/2
+CI.f.2 <- (241607.98  +52282.95) /2
+ACME.2 <- (38260.93+99630.65 )/2
+mean.m.2 <- mean(CME.m.2)
+mean.f.2 <- mean(CME.f.2)
+mean.acme.2<-mean(ACME_2)
+
+plot.df.2 <- data.frame(Mean.Education.Effect = c(mean.m.2, mean.f.2, mean.acme.2), CI = c(CI.m.2, CI.f.2, ACME.2),
+                      Category = c("Male","Female","Difference"))
+p.2 <-ggplot(plot.df.2, aes(x=Mean.Education.Effect, y=Category, color = Category)) + 
+  geom_point()+
+  geom_errorbar(aes(xmin=Mean.Education.Effect-CI, xmax=Mean.Education.Effect+CI))+
+  labs(title="Boostrap Confidence Interval of ACME, 2017 - 2019")+
+theme_minimal()
+  
+p.2
+```
+
+```{r}
+ACME.df <- as.data.frame(ACME)
+p4 <- ggplot(ACME.df, aes(x=V1, y = ..density..))+geom_histogram( fill="lightblue", bins = 50) +
+      geom_density(color="darkblue")+
+      geom_vline(xintercept=68652.95, colour = "darkblue",linetype="dotted")+
+      geom_vline(xintercept=142322.71, colour = "darkblue",linetype="dotted")+
+      #geom_text(aes(x=14419.03, label="Lower Bound=14419.03", y=50), colour="dark grey", angle = 90)+
+      #geom_text(aes(x=22215.36, label="Upper Bound", y=50), colour="dark grey")+
+      #geom_rect(aes(xmin = -Inf , xmax = 14419.03 , ymin = -Inf, ymax = Inf),fill = "#FFFFCC", alpha = 0.015)+
+      #geom_rect(aes(xmin = 22215.36, xmax = Inf , ymin = -Inf, ymax = Inf),fill = "#FFFFCC", alpha = 0.015)+
+     labs(title="Boostrap Distribution of ACME, 2017-2019", x ="Mediation Effect Level", y = "Density")+
+     theme_minimal()+
+     theme(plot.title = element_text(hjust = 0.5),panel.grid.major = element_blank(),panel.grid.minor = element_blank(), rect = element_rect(fill = "transparent")) +
+      geom_text(aes(x=68652.95, label="2.5% quantile=68652.95",y=0.00002 ,family="serif", fontface="italic"), colour="darkblue", angle=90, size=3)+
+      geom_text(aes(x=142322.71, label="97.5% quantile=142322.71", y=0.00002,family="serif", fontface="italic"), colour="darkblue", angle=90, size=3)
+     
+
+p4
+
+```
+

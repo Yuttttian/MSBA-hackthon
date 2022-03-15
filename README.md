@@ -4,10 +4,10 @@
 Women in Tech
 
 # Gravity Team
-Ran Zhang
-Yi Huang
-Yutian Lei
-Andrew Chao
+Ran Zhang 
+Yi Huang  
+Yutian Lei  
+Andrew Chao 
 
 
 
